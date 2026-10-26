@@ -1,0 +1,55 @@
+<a class="skip-link" href="#main" (click)="focusMain($event)">Saltar al contenido</a>
+<div id="app">
+  <aside class="sidebar" id="sidebar" [class.open]="menuOpen()">
+    <button class="icon-button sidebar-dismiss" type="button" (click)="closeMenu()" aria-label="Cerrar navegación"><svg appIcon="close"></svg></button>
+    <a class="brand" routerLink="/" aria-label="AdaptCode UTP, inicio">
+      <span class="brand-symbol"><svg appIcon="code"></svg></span>
+      <span>Adapt<span class="brand-code">Code</span><small>UTP · APRENDE A TU RITMO</small></span>
+    </a>
+    <div class="workspace-label">TU ESPACIO DE APRENDIZAJE</div>
+    <nav aria-label="Navegación principal">
+      @for (item of nav(); track item[0]) {
+        <a [routerLink]="item[0]" class="nav-link" [class.active]="selected() === item[0]" [attr.aria-current]="selected() === item[0] ? 'page' : null" (click)="closeMenu()">
+          <svg [appIcon]="item[1]"></svg><span>{{ item[2] }}</span>@if (item[0] === '/salas') { <span class="live-dot"></span> }
+        </a>
+      }
+    </nav>
+    <div class="sidebar-bottom">
+      <div class="sidebar-note"><svg appIcon="bulb"></svg><strong>Cada intento cuenta.</strong><p>Equivocarte también es parte de aprender.</p></div>
+      <a class="nav-link" [class.active]="path() === '/ajustes'" routerLink="/ajustes"><svg appIcon="settings"></svg><span>Accesibilidad</span></a>
+      <button class="nav-link" type="button" (click)="openHelp()"><svg appIcon="help"></svg><span>¿Necesitas una mano?</span></button>
+    </div>
+    <div class="institution"><span class="utp-mark">UTP</span><span>Universidad Tecnológica<br>del Perú</span></div>
+  </aside>
+
+  <div class="page" [attr.inert]="mainInert() ? '' : null">
+    <header class="topbar">
+      <div class="breadcrumb">
+        <button class="icon-button menu-toggle" type="button" (click)="toggleMenu()" aria-label="Abrir navegación" [attr.aria-expanded]="menuOpen()"><svg appIcon="menu"></svg></button>
+        <span>Mi espacio</span><svg appIcon="chevron"></svg><strong>{{ pageLabel() }}</strong>
+      </div>
+      <div class="topbar-actions">
+        <span class="learning-label"><svg appIcon="shield"></svg> Un espacio para aprender</span>
+        <button class="profile" type="button" (click)="onProfileButton()">
+          <span class="avatar">{{ userName().charAt(0).toUpperCase() }}</span>
+          <span><strong>{{ userName().split(' ')[0] }}</strong><small>{{ userRole() }}</small></span>
+          <svg appIcon="chevron"></svg>
+        </button>
+      </div>
+    </header>
+    @if (demoMode) {
+      <div class="demo-banner">Vista de demostración · Datos de ejemplo guardados en este navegador. <a href="/">Salir de la demo</a></div>
+    }
+    <main id="main" tabindex="-1">
+      @if (!ready()) {
+        <div class="loading" role="status"><span class="spinner"></span> Cargando tu espacio…</div>
+      } @else {
+        <router-outlet />
+      }
+    </main>
+    <footer class="footer"><span>Hecho para aprender. Diseñado para todos.</span><span>AdaptCode UTP <span class="footer-dot">·</span> {{ year }}</span></footer>
+  </div>
+</div>
+
+<app-modal-host />
+<div id="toast" class="toast" [class.show]="toast.visible()" role="status" aria-live="polite">{{ toast.message() }}</div>

@@ -1,0 +1,9 @@
+frontend/node_modules
+frontend/.angular
+src/main/resources/static
+target
+.git
+.local
+.tools
+.idea
+.vscode

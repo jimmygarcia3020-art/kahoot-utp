@@ -1,0 +1,14 @@
+{
+  "name": "adaptcode-utp-frontend",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:frontend": "npm --prefix frontend run build",
+    "dev": "node scripts/preview.mjs",
+    "test:frontend": "npm --prefix frontend test",
+    "test:integration": "node scripts/verify-live.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
