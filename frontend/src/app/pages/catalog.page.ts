@@ -13,7 +13,7 @@ import { courseStyle, labels } from '../core/util';
   selector: 'app-courses',
   imports: [CourseCardsComponent, CatalogWarningComponent, EmptyComponent],
   template: `
-    <div class="page-heading"><div><div class="eyebrow">ELIGE TU CAMINO</div><h1>Mis cursos</h1><p>Construye tu conocimiento, un concepto a la vez.</p></div></div>
+    <div class="page-heading"><div><div class="eyebrow">ELIGE TU CAMINO</div><h1>Cursos Disponibles</h1><p>Construye tu conocimiento, un concepto a la vez.</p></div></div>
     <app-catalog-warning />
     <div class="courses-grid full-courses">
       <app-course-cards />

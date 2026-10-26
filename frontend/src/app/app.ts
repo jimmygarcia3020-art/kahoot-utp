@@ -31,7 +31,7 @@ export class App implements OnInit {
   readonly year = new Date().getFullYear();
 
   readonly nav = computed(() => {
-    const items: [string, string, string][] = [['/', 'home', 'Mi inicio'], ['/cursos', 'book', 'Mis cursos'], ['/retos', 'code', 'Micro-retos'], ['/progreso', 'chart', 'Mi progreso'], ['/insignias', 'award', 'Mis insignias']];
+    const items: [string, string, string][] = [['/', 'home', 'Mi inicio'], ['/cursos', 'book', 'Cursos'], ['/retos', 'code', 'Micro-retos'], ['/progreso', 'chart', 'Mi progreso'], ['/insignias', 'award', 'Mis insignias']];
     if (this.session.isTeacher()) items.push(['/docente/preguntas', 'edit', 'Mis preguntas'], ['/docente/quizzes', 'book', 'Mis quizzes'], ['/docente/salas', 'users', 'Mis salas']);
     else if (this.session.session()?.rol !== 'USUARIO_EXTERNO') items.push(['/salas', 'users', 'Salas en vivo']);
     return items;
