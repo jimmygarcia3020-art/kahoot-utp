@@ -33,6 +33,8 @@ export interface AuthSession {
   tipoToken: string;
   expiraEnMs: number;
   expiresAt: number;
+  refreshToken?: string;
+  refreshExpiraEnMs?: number;
   usuarioId: number;
   correo: string;
   nombres: string;
@@ -55,7 +57,8 @@ export function readStored<T>(storage: Storage, key: string, fallback: T | null 
 }
 
 export function validSession(session: AuthSession | null, now = Date.now()): AuthSession | null {
-  return session?.token && session?.usuarioId && session.expiresAt > now ? session : null;
+  // El access token dura 15 min; con refresh token la sesión se renueva al usarla.
+  return session?.usuarioId && (session.expiresAt > now || session.refreshToken) ? session : null;
 }
 
 export function needsProfile(session: AuthSession | null): boolean {

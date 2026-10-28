@@ -114,7 +114,7 @@ export class StudentRoomsPage {
   reload(): void { this.load(this.pin()); }
 
   async join(s: any): Promise<void> {
-    await this.api.request(`/salas/${s.id}/participaciones`, { method: 'POST', body: { estudianteId: this.session.session()!.usuarioId } });
+    await this.api.request(`/salas/${s.id}/participaciones`, { method: 'POST', body: { estudianteId: this.session.session()!.usuarioId, pin: this.pin() } });
     this.reload();
   }
 

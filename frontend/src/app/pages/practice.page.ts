@@ -206,7 +206,7 @@ export class PracticePage implements OnDestroy {
     const result = this.result();
     if (!result?.solucion || !this.session.requireSession()) return;
     await this.api.request(this.session.userPath('intentos'), {
-      method: 'POST', body: { microRetoId: this.id(), acierto: true, usoAyuda: true, tiempoMs: Math.max(0, Date.now() - this.started) },
+      method: 'POST', body: { microRetoId: this.id(), tiempoMs: Math.max(0, Date.now() - this.started) },
     });
     this.usedHelp = true;
     this.solutionShown.set(result.solucion);
