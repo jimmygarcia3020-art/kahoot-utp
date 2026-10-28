@@ -19,9 +19,12 @@ import com.adaptcode.utp.dto.request.PreguntaDocenteRequest;
 import com.adaptcode.utp.dto.response.PreguntaDocenteResponse;
 import com.adaptcode.utp.model.OrigenPregunta;
 import com.adaptcode.utp.service.PreguntaDocenteService;
+import com.adaptcode.utp.util.Paginacion;
 
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.PositiveOrZero;
 import lombok.RequiredArgsConstructor;
 
 @RestController
@@ -51,11 +54,14 @@ public class PreguntaDocenteController {
 	}
 
 	@GetMapping
-	public ResponseEntity<List<PreguntaDocenteResponse>> listar(
+	public ResponseEntity<?> listar(
 			@Positive(message = "El identificador debe ser positivo.") @PathVariable Long docenteId,
-			@RequestParam(required = false) OrigenPregunta origen) {
-		return ResponseEntity.ok(
-				preguntaDocenteService.listarPorDocente(docenteId, origen));
+			@RequestParam(required = false) OrigenPregunta origen,
+			@RequestParam(required = false) @PositiveOrZero(message = "La página no puede ser negativa.") Integer page,
+			@RequestParam(required = false) @Positive(message = "El tamaño debe ser positivo.") @Max(value = 100, message = "El tamaño máximo es 100.") Integer size) {
+		return ResponseEntity.ok(Paginacion.responder(
+				preguntaDocenteService.listarPorDocente(docenteId, origen), page,
+				size));
 	}
 
 	@GetMapping("/{id}")

@@ -27,29 +27,57 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class IntentoServiceImp implements IntentoService {
 
+	/**
+	 * A partir de este intento la solución está disponible. Los intentos
+	 * asistidos nunca entregan punto de dominio: el dominio exige resolver el
+	 * reto sin ayuda antes de agotar las tres oportunidades.
+	 */
+	private static final int INTENTOS_PARA_SOLUCION = 3;
+
 	private final IntentoRepository intentoRepository;
 	private final UsuarioRepository usuarioRepository;
 	private final MicroRetoRepository microRetoRepository;
 	private final ProgresoMicroRetoRepository progresoMicroRetoRepository;
 	private final InsigniaObtenidaRepository insigniaObtenidaRepository;
 
+	/**
+	 * Completa el reto con la solución explicada. El cliente no decide el
+	 * acierto ni la ayuda: este endpoint solo se habilita después de tres
+	 * intentos y siempre registra un intento asistido sin punto de dominio.
+	 */
 	@Override
 	@Transactional
 	public IntentoResponse registrarIntento(Long usuarioId, IntentoRequest request) {
 		Usuario usuario = validarUsuario(usuarioId);
-		MicroReto microReto = microRetoRepository
-				.findByIdAndActivoTrueAndTema_ActivoTrueAndTema_Curso_ActivoTrue(
-						request.microRetoId())
-				.orElseThrow(() -> new ResourceNotFoundException("El micro-reto no existe."));
-		int siguiente = (int) intentoRepository.countByUsuario_IdAndMicroReto_Id(
-				usuarioId, request.microRetoId()) + 1;
-		Intento intento = new Intento(usuario, microReto, siguiente,
-				request.acierto(), request.usoAyuda());
-		intento.setTiempoMs(request.tiempoMs());
-		Intento guardado = intentoRepository.save(intento);
-		actualizarProgresoAtomico(usuario, microReto, request.acierto(), request.usoAyuda());
-		otorgarInsigniasAutomaticas(usuario, guardado);
-		return aResponse(guardado);
+		MicroReto microReto = buscarReto(request.microRetoId());
+		int previos = (int) intentoRepository.countByUsuario_IdAndMicroReto_Id(
+				usuarioId, microReto.getId());
+		if (previos < INTENTOS_PARA_SOLUCION) {
+			throw new SolicitudInvalidaException(
+					"La solución se habilita después de tres intentos. "
+							+ "Sigue practicando y vuelve a intentarlo.");
+		}
+		return guardar(usuario, microReto, previos + 1, true, true,
+				request.tiempoMs());
+	}
+
+	/**
+	 * Registra una evaluación calificada por el servidor. La ayuda se deriva
+	 * del número de intento: desde el tercero la solución ya está disponible y
+	 * el intento nunca entrega punto de dominio.
+	 */
+	@Override
+	@Transactional
+	public IntentoResponse registrarEvaluacion(Long usuarioId, Long microRetoId,
+			boolean acierto, boolean usoAyuda, Long tiempoMs) {
+		validarIdentificador(microRetoId);
+		Usuario usuario = validarUsuario(usuarioId);
+		MicroReto microReto = buscarReto(microRetoId);
+		int nroIntento = (int) intentoRepository
+				.countByUsuario_IdAndMicroReto_Id(usuarioId, microRetoId) + 1;
+		boolean ayudaEfectiva = usoAyuda || nroIntento >= INTENTOS_PARA_SOLUCION;
+		return guardar(usuario, microReto, nroIntento, acierto, ayudaEfectiva,
+				tiempoMs);
 	}
 
 	@Override
@@ -73,6 +101,26 @@ public class IntentoServiceImp implements IntentoService {
 				.toList();
 	}
 
+	private IntentoResponse guardar(Usuario usuario, MicroReto microReto,
+			int nroIntento, boolean acierto, boolean usoAyuda, Long tiempoMs) {
+		Intento intento = new Intento(usuario, microReto, nroIntento, acierto,
+				usoAyuda);
+		intento.setTiempoMs(tiempoMs);
+		Intento guardado = intentoRepository.save(intento);
+		actualizarProgreso(usuario, microReto, acierto, usoAyuda);
+		otorgarInsigniasAutomaticas(usuario, guardado);
+		return aResponse(guardado);
+	}
+
+	private MicroReto buscarReto(Long microRetoId) {
+		validarIdentificador(microRetoId);
+		return microRetoRepository
+				.findByIdAndActivoTrueAndTema_ActivoTrueAndTema_Curso_ActivoTrue(
+						microRetoId)
+				.orElseThrow(() -> new ResourceNotFoundException(
+						"El micro-reto no existe."));
+	}
+
 	private Usuario validarUsuario(Long usuarioId) {
 		validarIdentificador(usuarioId);
 		Usuario usuario = usuarioRepository.findById(usuarioId)
@@ -83,7 +131,12 @@ public class IntentoServiceImp implements IntentoService {
 		return usuario;
 	}
 
-	private void actualizarProgresoAtomico(
+	/**
+	 * El primer acierto define el progreso. Si el reto ya estaba completado, no
+	 * se degrada ni se vuelve a otorgar: el punto de dominio es permanente y
+	 * solo lo obtiene quien resuelve sin ayuda.
+	 */
+	private void actualizarProgreso(
 			Usuario usuario, MicroReto microReto, boolean acierto, boolean usoAyuda) {
 		if (!acierto) {
 			return;
@@ -93,13 +146,8 @@ public class IntentoServiceImp implements IntentoService {
 				.orElseGet(() -> new ProgresoMicroReto(usuario, microReto));
 		if (!progreso.isCompletado()) {
 			progreso.setCompletado(true);
-			if (usoAyuda) {
-				progreso.setResueltoConAyuda(true);
-				progreso.setPuntoDominio(false);
-			} else {
-				progreso.setResueltoConAyuda(false);
-				progreso.setPuntoDominio(true);
-			}
+			progreso.setResueltoConAyuda(usoAyuda);
+			progreso.setPuntoDominio(!usoAyuda);
 			progresoMicroRetoRepository.save(progreso);
 		}
 	}
@@ -110,7 +158,7 @@ public class IntentoServiceImp implements IntentoService {
 						usuario.getId()) == 1) {
 			otorgarSiNoExiste(usuario, TipoInsignia.PRIMER_PASO);
 		}
-		if (intento.isAcierto() && intento.getNroIntento() >= 3) {
+		if (intento.isAcierto() && intento.getNroIntento() >= INTENTOS_PARA_SOLUCION) {
 			otorgarSiNoExiste(usuario, TipoInsignia.PERSEVERANTE);
 		}
 		// TODO(fase-gamificacion): EXPLORADOR, DOMINIO_BASICO y CURSO_COMPLETADO

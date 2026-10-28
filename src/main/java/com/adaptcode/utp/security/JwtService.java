@@ -4,6 +4,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.Key;
 import java.time.Instant;
 import java.util.Date;
+import java.util.UUID;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -18,19 +19,31 @@ import io.jsonwebtoken.SignatureAlgorithm;
 import io.jsonwebtoken.security.Keys;
 
 /**
- * Genera y valida tokens JWT (firma HS256 + expiración). El correo es el
- * subject y se agregan como claims el identificador y el rol del usuario.
+ * Genera y valida los JWT de la aplicación.
+ *
+ * <p>Hay dos tipos de token, distinguidos por el claim {@code tipo}:</p>
+ * <ul>
+ *   <li><b>access</b>: vida corta (15 minutos). Es el que viaja en
+ *       {@code Authorization: Bearer}.</li>
+ *   <li><b>refresh</b>: vida larga (30 días), un solo uso y revocable en base
+ *       de datos. Nunca se acepta como token de acceso.</li>
+ * </ul>
  */
 @Component
 public class JwtService {
 
+	public static final String TIPO_ACCESS = "access";
+	public static final String TIPO_REFRESH = "refresh";
+
 	private final Key key;
 	private final long expirationMs;
+	private final long refreshExpirationMs;
 	private final String emitter;
 
 	public JwtService(
-			@Value("${jwt.secret}") String secret,
+			@Value("${JWT_SECRET:${jwt.secret}}") String secret,
 			@Value("${jwt.expiration}") long expirationMs,
+			@Value("${jwt.refresh-expiration:2592000000}") long refreshExpirationMs,
 			@Value("${jwt.emitter:adaptcode-utp-api}") String emitter) {
 		if (secret == null || secret.getBytes(StandardCharsets.UTF_8).length < 32) {
 			throw new IllegalStateException(
@@ -38,25 +51,62 @@ public class JwtService {
 		}
 		this.key = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
 		this.expirationMs = expirationMs;
+		this.refreshExpirationMs = refreshExpirationMs;
 		this.emitter = emitter;
 	}
 
 	public String generateToken(UsuarioPrincipal principal) {
 		Instant ahora = Instant.now();
-		Instant expiracion = ahora.plusMillis(expirationMs);
 		return Jwts.builder()
 				.setSubject(principal.getCorreo())
 				.setIssuer(emitter)
+				.setId(UUID.randomUUID().toString())
 				.claim("id", principal.getId())
 				.claim("rol", principal.getRol().name())
+				.claim("tipo", TIPO_ACCESS)
 				.setIssuedAt(Date.from(ahora))
-				.setExpiration(Date.from(expiracion))
+				.setExpiration(Date.from(ahora.plusMillis(expirationMs)))
 				.signWith(key, SignatureAlgorithm.HS256)
 				.compact();
 	}
 
+	/**
+	 * Genera un refresh token de un solo uso. El llamador debe guardar su hash:
+	 * el valor en claro solo se entrega al cliente.
+	 */
+	public String generateRefreshToken(UsuarioPrincipal principal) {
+		Instant ahora = Instant.now();
+		return Jwts.builder()
+				.setSubject(principal.getCorreo())
+				.setIssuer(emitter)
+				.setId(UUID.randomUUID().toString())
+				.claim("id", principal.getId())
+				.claim("rol", principal.getRol().name())
+				.claim("tipo", TIPO_REFRESH)
+				.setIssuedAt(Date.from(ahora))
+				.setExpiration(Date.from(ahora.plusMillis(refreshExpirationMs)))
+				.signWith(key, SignatureAlgorithm.HS256)
+				.compact();
+	}
+
+	/**
+	 * Valida firma, emisor, expiración y tipo de un refresh token. Lanza
+	 * {@link JwtException} si no es un refresh token legítimo.
+	 */
+	public Claims parseRefreshToken(String token) {
+		Claims claims = parseClaims(token);
+		if (!TIPO_REFRESH.equals(claims.get("tipo", String.class))) {
+			throw new JwtException("El token no es de refresco.");
+		}
+		return claims;
+	}
+
 	public long getExpirationMs() {
 		return expirationMs;
+	}
+
+	public long getRefreshExpirationMs() {
+		return refreshExpirationMs;
 	}
 
 	public String extractUsername(String token) {
@@ -89,6 +139,10 @@ public class JwtService {
 				return false;
 			}
 			Claims claims = parseClaims(token);
+			// Un refresh token nunca debe servir para autenticar peticiones.
+			if (TIPO_REFRESH.equals(claims.get("tipo", String.class))) {
+				return false;
+			}
 			String correo = claims.getSubject();
 			if (correo == null || !correo.equalsIgnoreCase(userDetails.getUsername())) {
 				return false;
@@ -113,6 +167,7 @@ public class JwtService {
 	private Claims parseClaims(String token) {
 		return Jwts.parserBuilder()
 				.setSigningKey(key)
+				.requireIssuer(emitter)
 				.build()
 				.parseClaimsJws(token)
 				.getBody();

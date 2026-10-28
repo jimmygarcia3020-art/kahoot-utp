@@ -29,6 +29,7 @@ public class AnulacionPreguntaServiceImp implements AnulacionPreguntaService {
 	private final SalaRepository salaRepository;
 	private final PreguntaDocenteRepository preguntaDocenteRepository;
 	private final QuizItemRepository quizItemRepository;
+	private final RankingCache rankingCache;
 
 	@Override
 	@Transactional
@@ -56,7 +57,10 @@ public class AnulacionPreguntaServiceImp implements AnulacionPreguntaService {
 		Usuario docente = sala.getDocente();
 		AnulacionPregunta anulacion = new AnulacionPregunta(sala, pregunta,
 				docente, request.motivo());
-		return aResponse(anulacionPreguntaRepository.save(anulacion));
+		AnulacionPreguntaResponse response = aResponse(
+				anulacionPreguntaRepository.save(anulacion));
+		rankingCache.invalidar(salaId);
+		return response;
 	}
 
 	@Override

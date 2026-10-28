@@ -17,9 +17,12 @@ import com.adaptcode.utp.dto.request.SalaRequest;
 import com.adaptcode.utp.dto.response.SalaResponse;
 import com.adaptcode.utp.model.EstadoSala;
 import com.adaptcode.utp.service.SalaService;
+import com.adaptcode.utp.util.Paginacion;
 
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.PositiveOrZero;
 import lombok.RequiredArgsConstructor;
 
 @RestController
@@ -39,10 +42,13 @@ public class SalaController {
 	}
 
 	@GetMapping
-	public ResponseEntity<List<SalaResponse>> listar(
+	public ResponseEntity<?> listar(
 			@Positive(message = "El identificador debe ser positivo.") @PathVariable Long docenteId,
-			@RequestParam(required = false) EstadoSala estado) {
-		return ResponseEntity.ok(salaService.listarPorDocente(docenteId, estado));
+			@RequestParam(required = false) EstadoSala estado,
+			@RequestParam(required = false) @PositiveOrZero(message = "La página no puede ser negativa.") Integer page,
+			@RequestParam(required = false) @Positive(message = "El tamaño debe ser positivo.") @Max(value = 100, message = "El tamaño máximo es 100.") Integer size) {
+		return ResponseEntity.ok(Paginacion.responder(
+				salaService.listarPorDocente(docenteId, estado), page, size));
 	}
 
 	@GetMapping("/{id}")
@@ -60,9 +66,22 @@ public class SalaController {
 	}
 
 	@PostMapping("/{id}/iniciar")
-	public ResponseEntity<SalaResponse> iniciar(			@Positive(message = "El identificador debe ser positivo.") @PathVariable Long docenteId,
+	public ResponseEntity<SalaResponse> iniciar(
+			@Positive(message = "El identificador debe ser positivo.") @PathVariable Long docenteId,
 			@Positive(message = "El identificador debe ser positivo.") @PathVariable Long id) {
 		return ResponseEntity.ok(salaService.iniciarSala(docenteId, id));
+	}
+
+	/**
+	 * Habilita la siguiente pregunta del quiz y reinicia el cronómetro en el
+	 * servidor. Sin esta llamada los estudiantes no pueden responder.
+	 */
+	@PostMapping("/{id}/siguiente-pregunta")
+	public ResponseEntity<SalaResponse> siguientePregunta(
+			@Positive(message = "El identificador debe ser positivo.") @PathVariable Long docenteId,
+			@Positive(message = "El identificador debe ser positivo.") @PathVariable Long id) {
+		return ResponseEntity.ok(
+				salaService.habilitarSiguientePregunta(docenteId, id));
 	}
 
 	@PostMapping("/{id}/pausar")

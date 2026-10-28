@@ -13,6 +13,7 @@ import jakarta.persistence.ManyToOne;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
+import jakarta.persistence.Version;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -47,6 +48,10 @@ public class ParticipacionSala {
 
 	@Column(name = "expulsado", nullable = false)
 	private boolean expulsado;
+
+	@Version
+	@Column(name = "version")
+	private Long version;
 
 	@Column(name = "creado_en", nullable = false, updatable = false)
 	private Instant creadoEn;

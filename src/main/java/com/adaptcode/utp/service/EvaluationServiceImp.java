@@ -7,7 +7,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.adaptcode.utp.dto.request.EvaluarIntentoRequest;
-import com.adaptcode.utp.dto.request.IntentoRequest;
 import com.adaptcode.utp.dto.response.EvaluarIntentoResponse;
 import com.adaptcode.utp.dto.response.IntentoResponse;
 import com.adaptcode.utp.dto.response.RetroalimentacionExplicadaResponse;
@@ -45,9 +44,8 @@ public class EvaluationServiceImp implements EvaluationService {
 		if (!acierto && request.alternativaId() != null) {
 			retro = buscarFeedback(reto, request.alternativaId());
 		}
-		IntentoResponse registrado = intentoService.registrarIntento(usuarioId,
-				new IntentoRequest(reto.getId(), acierto, request.usoAyuda(),
-						request.tiempoMs()));
+		IntentoResponse registrado = intentoService.registrarEvaluacion(usuarioId,
+				reto.getId(), acierto, request.usoAyuda(), request.tiempoMs());
 		boolean verSolucion = registradosIntentos(registrado) >= 3;
 		SolucionExplicadaResponse solucion = verSolucion
 				? construirSolucion(reto) : null;

@@ -3,12 +3,14 @@ package com.adaptcode.utp.service;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.util.List;
 import java.util.Optional;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -16,9 +18,9 @@ import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import com.adaptcode.utp.dto.request.EvaluarIntentoRequest;
-import com.adaptcode.utp.dto.request.IntentoRequest;
 import com.adaptcode.utp.dto.response.IntentoResponse;
 import com.adaptcode.utp.model.Alternativa;
+import com.adaptcode.utp.model.Bloque;
 import com.adaptcode.utp.model.Curso;
 import com.adaptcode.utp.model.MicroReto;
 import com.adaptcode.utp.model.NivelMicroReto;
@@ -47,7 +49,8 @@ class EvaluationServiceTest {
 		when(microRetoRepository
 				.findByIdAndActivoTrueAndTema_ActivoTrueAndTema_Curso_ActivoTrue(
 						30L)).thenReturn(Optional.of(reto));
-		when(intentoService.registrarIntento(eq(9L), any(IntentoRequest.class)))
+		when(intentoService.registrarEvaluacion(eq(9L), eq(30L), eq(false),
+				eq(false), eq(1000L)))
 				.thenReturn(new IntentoResponse(1L, 9L, 30L, 1, false, false,
 						1000L));
 
@@ -58,8 +61,79 @@ class EvaluationServiceTest {
 		assertEquals("Confunde el operador.", response.retroalimentacion().causa());
 		assertNull(response.solucion());
 		assertFalse(response.verSolucionDisponible());
-		verify(intentoService).registrarIntento(eq(9L),
-				any(IntentoRequest.class));
+		verify(intentoService).registrarEvaluacion(eq(9L), eq(30L), eq(false),
+				eq(false), eq(1000L));
+	}
+
+	@Test
+	void ordenarBloques_soloAceptaElOrdenCorrectoCompleto() {
+		MicroReto reto = retoOrdenarBloques();
+		when(microRetoRepository
+				.findByIdAndActivoTrueAndTema_ActivoTrueAndTema_Curso_ActivoTrue(
+						30L)).thenReturn(Optional.of(reto));
+		when(intentoService.registrarEvaluacion(eq(9L), eq(30L), eq(true),
+				eq(false), eq(2000L)))
+				.thenReturn(new IntentoResponse(1L, 9L, 30L, 1, true, false,
+						2000L));
+		when(intentoService.registrarEvaluacion(eq(9L), eq(30L), eq(false),
+				eq(false), eq(2500L)))
+				.thenReturn(new IntentoResponse(2L, 9L, 30L, 2, false, false,
+						2500L));
+
+		var correcta = evaluationService.evaluarIntento(9L,
+				new EvaluarIntentoRequest(30L, null, List.of(300L, 301L, 302L),
+						false, 2000L));
+		var permutada = evaluationService.evaluarIntento(9L,
+				new EvaluarIntentoRequest(30L, null, List.of(301L, 300L, 302L),
+						false, 2500L));
+
+		assertTrue(correcta.acierto());
+		assertFalse(permutada.acierto());
+		// La solución no se revela en el primer intento.
+		assertNull(correcta.solucion());
+	}
+
+	@Test
+	void ordenarBloques_noAceptaOrdenIncompletoNiRepetido() {
+		MicroReto reto = retoOrdenarBloques();
+		when(microRetoRepository
+				.findByIdAndActivoTrueAndTema_ActivoTrueAndTema_Curso_ActivoTrue(
+						30L)).thenReturn(Optional.of(reto));
+		when(intentoService.registrarEvaluacion(eq(9L), eq(30L), eq(false),
+				eq(false), any()))
+				.thenReturn(new IntentoResponse(1L, 9L, 30L, 1, false, false,
+						1000L));
+
+		var incompleta = evaluationService.evaluarIntento(9L,
+				new EvaluarIntentoRequest(30L, null, List.of(300L, 301L), false,
+						1000L));
+		var repetida = evaluationService.evaluarIntento(9L,
+				new EvaluarIntentoRequest(30L, null,
+						List.of(300L, 300L, 302L), false, 1000L));
+
+		assertFalse(incompleta.acierto());
+		assertFalse(repetida.acierto());
+	}
+
+	private MicroReto retoOrdenarBloques() {
+		Curso curso = new Curso("Algoritmos");
+		ReflectionTestUtils.setField(curso, "id", 1L);
+		Tema tema = new Tema(curso, "Secuencias");
+		ReflectionTestUtils.setField(tema, "id", 10L);
+		MicroReto reto = new MicroReto("DEMO-ALG-02", tema,
+				TipoMicroReto.ORDENAR_BLOQUES, NivelMicroReto.BASICO,
+				"Ordena los pasos.", null, null);
+		ReflectionTestUtils.setField(reto, "id", 30L);
+		Bloque primero = new Bloque("Inicio", 1, 1);
+		ReflectionTestUtils.setField(primero, "id", 300L);
+		Bloque segundo = new Bloque("Proceso", 2, 2);
+		ReflectionTestUtils.setField(segundo, "id", 301L);
+		Bloque tercero = new Bloque("Fin", 3, 3);
+		ReflectionTestUtils.setField(tercero, "id", 302L);
+		reto.agregarBloque(primero);
+		reto.agregarBloque(segundo);
+		reto.agregarBloque(tercero);
+		return reto;
 	}
 
 	private MicroReto retoSeleccionMultiple() {

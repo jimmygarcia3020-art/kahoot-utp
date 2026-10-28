@@ -1,0 +1,59 @@
+# Levanta la API en modo producción con PostgreSQL.
+#
+#   1. Copia .env.example a .env y define los secretos.
+#   2. docker compose up --build
+#
+# La API no arranca si faltan JWT_SECRET, CODIGO_PEPPER, la contraseña de la
+# base o ADAPTCODE_MAIL_HOST: es intencional (ver SecretosValidator).
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: adaptcode_utp
+      POSTGRES_USER: adaptcode
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?define POSTGRES_PASSWORD en .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U adaptcode -d adaptcode_utp"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    ports:
+      # Solo para administración local; en un servidor público quita este mapeo.
+      - "127.0.0.1:5432:5432"
+
+  api:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      ADAPTCODE_PROFILE: prod
+      ADAPTCODE_DB_URL: jdbc:postgresql://db:5432/adaptcode_utp
+      ADAPTCODE_DB_USERNAME: adaptcode
+      ADAPTCODE_DB_PASSWORD: ${POSTGRES_PASSWORD:?define POSTGRES_PASSWORD en .env}
+      JWT_SECRET: ${JWT_SECRET:?define JWT_SECRET en .env}
+      CODIGO_PEPPER: ${CODIGO_PEPPER:?define CODIGO_PEPPER en .env}
+      ADAPTCODE_MAIL_HOST: ${ADAPTCODE_MAIL_HOST:?define ADAPTCODE_MAIL_HOST en .env}
+      ADAPTCODE_MAIL_PORT: ${ADAPTCODE_MAIL_PORT:-587}
+      ADAPTCODE_MAIL_USERNAME: ${ADAPTCODE_MAIL_USERNAME:-}
+      ADAPTCODE_MAIL_PASSWORD: ${ADAPTCODE_MAIL_PASSWORD:-}
+      SPRINGDOC_ENABLED: ${SPRINGDOC_ENABLED:-false}
+      # Detrás del proxy de compose el rate limit debe confiar en el proxy solo
+      # si este sobrescribe X-Forwarded-For. Por defecto queda desactivado.
+      SEGURIDAD_RATE_LIMIT_CONFIAR_PROXY: "false"
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 45s
+
+volumes:
+  pgdata:

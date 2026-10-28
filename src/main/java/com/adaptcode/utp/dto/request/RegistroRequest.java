@@ -25,7 +25,7 @@ public record RegistroRequest(
 		String correo,
 
 		@NotBlank(message = "La contraseña es obligatoria.")
-		@Size(min = 8, max = 72, message = "La contraseña debe tener entre 8 y 72 caracteres.")
+		@Size(min = 12, max = 72, message = "La contraseña debe tener entre 12 y 72 caracteres.")
 		String contrasena,
 
 		@NotNull(message = "El género es obligatorio.")

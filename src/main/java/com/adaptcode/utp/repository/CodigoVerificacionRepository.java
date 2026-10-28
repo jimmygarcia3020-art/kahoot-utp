@@ -1,5 +1,6 @@
 package com.adaptcode.utp.repository;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
@@ -13,5 +14,13 @@ public interface CodigoVerificacionRepository extends JpaRepository<CodigoVerifi
 	Optional<CodigoVerificacion> findTopByCorreoAndTipoAndUsadoFalseOrderByCreadoEnDesc(
 			String correo, TipoCodigoVerificacion tipo);
 
+	Optional<CodigoVerificacion> findTopByCorreoAndTipoOrderByCreadoEnDesc(
+			String correo, TipoCodigoVerificacion tipo);
+
 	List<CodigoVerificacion> findAllByCorreoAndTipo(String correo, TipoCodigoVerificacion tipo);
+
+	long countByCorreoAndTipoAndCreadoEnAfter(String correo,
+			TipoCodigoVerificacion tipo, Instant desde);
+
+	void deleteAllByCorreo(String correo);
 }

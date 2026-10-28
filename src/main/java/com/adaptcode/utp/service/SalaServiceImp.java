@@ -1,24 +1,39 @@
 package com.adaptcode.utp.service;
 
 import java.security.SecureRandom;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.adaptcode.utp.dto.request.SalaRequest;
+import com.adaptcode.utp.dto.response.AlternativaSalaResponse;
+import com.adaptcode.utp.dto.response.EstadoPreguntaResponse;
+import com.adaptcode.utp.dto.response.PreguntaSalaResponse;
 import com.adaptcode.utp.dto.response.SalaResponse;
 import com.adaptcode.utp.exception.ResourceNotFoundException;
 import com.adaptcode.utp.exception.SolicitudInvalidaException;
-import com.adaptcode.utp.model.EstadoSala;
+import com.adaptcode.utp.model.AlternativaDocente;
 import com.adaptcode.utp.model.EstadoQuiz;
 import com.adaptcode.utp.model.EstadoSala;
+import com.adaptcode.utp.model.ParticipacionSala;
 import com.adaptcode.utp.model.Quiz;
+import com.adaptcode.utp.model.QuizItem;
+import com.adaptcode.utp.model.RespuestaSala;
 import com.adaptcode.utp.model.RolUsuario;
 import com.adaptcode.utp.model.Sala;
 import com.adaptcode.utp.model.Usuario;
+import com.adaptcode.utp.repository.AlternativaDocenteRepository;
+import com.adaptcode.utp.repository.AnulacionPreguntaRepository;
+import com.adaptcode.utp.repository.ParticipacionSalaRepository;
+import com.adaptcode.utp.repository.QuizItemRepository;
 import com.adaptcode.utp.repository.QuizRepository;
+import com.adaptcode.utp.repository.RespuestaSalaRepository;
 import com.adaptcode.utp.repository.SalaRepository;
 import com.adaptcode.utp.repository.UsuarioRepository;
 
@@ -33,6 +48,13 @@ public class SalaServiceImp implements SalaService {
 	private final SalaRepository salaRepository;
 	private final UsuarioRepository usuarioRepository;
 	private final QuizRepository quizRepository;
+	private final QuizItemRepository quizItemRepository;
+	private final AnulacionPreguntaRepository anulacionPreguntaRepository;
+	private final AlternativaDocenteRepository alternativaDocenteRepository;
+	private final ParticipacionSalaRepository participacionSalaRepository;
+	private final RespuestaSalaRepository respuestaSalaRepository;
+	private final RankingCache rankingCache;
+	private final SalaEventoService salaEventoService;
 	private final SecureRandom pinAleatorio = new SecureRandom();
 
 	@Override
@@ -51,7 +73,7 @@ public class SalaServiceImp implements SalaService {
 		}
 		Sala sala = new Sala(docente, quiz, generarPinUnico(), request.tiempoPorPregunta());
 		sala.setAmpliacion(request.ampliacion());
-		sala.setQuizVersionCongeladaEn(java.time.Instant.now());
+		sala.setQuizVersionCongeladaEn(Instant.now());
 		return aResponse(salaRepository.save(sala));
 	}
 
@@ -100,12 +122,13 @@ public class SalaServiceImp implements SalaService {
 					"Solo una sala en borrador puede abrir la espera.");
 		}
 		sala.setEstado(EstadoSala.SALA_ESPERA);
-		return aResponse(salaRepository.save(sala));
+		return guardarYPublicar(sala);
 	}
 
 	@Override
 	@Transactional
-	public SalaResponse iniciarSala(Long docenteId, Long id) {		Sala sala = buscarSalaDeDocente(docenteId, id);
+	public SalaResponse iniciarSala(Long docenteId, Long id) {
+		Sala sala = buscarSalaDeDocente(docenteId, id);
 		if (sala.getEstado() != EstadoSala.BORRADOR
 				&& sala.getEstado() != EstadoSala.SALA_ESPERA) {
 			throw new SolicitudInvalidaException(
@@ -117,9 +140,65 @@ public class SalaServiceImp implements SalaService {
 		}
 		sala.setEstado(EstadoSala.EN_CURSO);
 		if (sala.getQuizVersionCongeladaEn() == null) {
-			sala.setQuizVersionCongeladaEn(java.time.Instant.now());
+			sala.setQuizVersionCongeladaEn(Instant.now());
 		}
-		return aResponse(salaRepository.save(sala));
+		// El servidor habilita la primera pregunta: el cronómetro empieza aquí.
+		if (sala.getPreguntaActual() == null) {
+			habilitar(sala, primeraPregunta(sala));
+		}
+		return guardarYPublicar(sala);
+	}
+
+	@Override
+	@Transactional
+	public SalaResponse habilitarSiguientePregunta(Long docenteId, Long id) {
+		Sala sala = buscarSalaDeDocente(docenteId, id);
+		if (sala.getEstado() != EstadoSala.EN_CURSO) {
+			throw new SolicitudInvalidaException(
+					"Solo se puede avanzar la pregunta con la sala en curso.");
+		}
+		List<QuizItem> items = quizItemRepository
+				.findAllByQuiz_IdOrderByOrdenAsc(sala.getQuizOrigen().getId());
+		Set<Long> anuladas = anulacionPreguntaRepository
+				.findAllBySala_Id(sala.getId()).stream()
+				.map(a -> a.getPregunta().getId())
+				.collect(Collectors.toSet());
+		Integer ordenActual = sala.getPreguntaActual() == null ? null
+				: items.stream()
+						.filter(i -> i.getPregunta().getId()
+								.equals(sala.getPreguntaActual().getId()))
+						.map(QuizItem::getOrden)
+						.findFirst()
+						.orElse(null);
+		QuizItem siguiente = items.stream()
+				.filter(item -> !anuladas.contains(item.getPregunta().getId()))
+				.filter(item -> ordenActual == null
+						|| item.getOrden() > ordenActual)
+				.findFirst()
+				.orElseThrow(() -> new SolicitudInvalidaException(
+						"No hay más preguntas disponibles en esta sala."));
+		habilitar(sala, siguiente);
+		return guardarYPublicar(sala);
+	}
+
+	private void habilitar(Sala sala, QuizItem item) {
+		sala.setPreguntaActual(item.getPregunta());
+		sala.setPreguntaIniciadaEn(Instant.now());
+		sala.setPausadaEn(null);
+	}
+
+	private QuizItem primeraPregunta(Sala sala) {
+		List<QuizItem> items = quizItemRepository
+				.findAllByQuiz_IdOrderByOrdenAsc(sala.getQuizOrigen().getId());
+		Set<Long> anuladas = anulacionPreguntaRepository
+				.findAllBySala_Id(sala.getId()).stream()
+				.map(a -> a.getPregunta().getId())
+				.collect(Collectors.toSet());
+		return items.stream()
+				.filter(item -> !anuladas.contains(item.getPregunta().getId()))
+				.findFirst()
+				.orElseThrow(() -> new SolicitudInvalidaException(
+						"El quiz no tiene preguntas disponibles."));
 	}
 
 	@Override
@@ -131,7 +210,8 @@ public class SalaServiceImp implements SalaService {
 					"Solo una sala en curso se puede pausar.");
 		}
 		sala.setEstado(EstadoSala.PAUSADA);
-		return aResponse(salaRepository.save(sala));
+		sala.setPausadaEn(Instant.now());
+		return guardarYPublicar(sala);
 	}
 
 	@Override
@@ -142,8 +222,19 @@ public class SalaServiceImp implements SalaService {
 			throw new SolicitudInvalidaException(
 					"Solo una sala pausada se puede reanudar.");
 		}
+		Instant ahora = Instant.now();
+		// El cronómetro se detuvo durante la pausa: se desplaza el inicio para
+		// que el tiempo pausado no consuma el plazo de respuesta.
+		if (sala.getPausadaEn() != null && sala.getPreguntaIniciadaEn() != null) {
+			Duration pausa = Duration.between(sala.getPausadaEn(), ahora);
+			if (!pausa.isNegative()) {
+				sala.setPreguntaIniciadaEn(
+						sala.getPreguntaIniciadaEn().plus(pausa));
+			}
+		}
+		sala.setPausadaEn(null);
 		sala.setEstado(EstadoSala.EN_CURSO);
-		return aResponse(salaRepository.save(sala));
+		return guardarYPublicar(sala);
 	}
 
 	@Override
@@ -156,7 +247,157 @@ public class SalaServiceImp implements SalaService {
 					"Solo una sala en curso o pausada se puede finalizar.");
 		}
 		sala.setEstado(EstadoSala.FINALIZADA);
-		return aResponse(salaRepository.save(sala));
+		sala.setPausadaEn(null);
+		return guardarYPublicar(sala);
+	}
+
+	/**
+	 * Estado del cronómetro de la pregunta actual. No incluye el enunciado ni
+	 * las alternativas: solo lo necesario para que el cliente muestre el tiempo
+	 * restante sin convertirse en autoridad del puntaje.
+	 */
+	@Override
+	@Transactional(readOnly = true)
+	public EstadoPreguntaResponse estadoPregunta(Long salaId) {
+		validarIdentificador(salaId);
+		Sala sala = salaRepository.findById(salaId)
+				.orElseThrow(() -> new ResourceNotFoundException(
+						"La sala no existe."));
+		int limiteSegundos = sala.segundosLimitePregunta();
+		return new EstadoPreguntaResponse(
+				sala.getId(),
+				sala.getEstado(),
+				sala.getPreguntaActual() == null ? null
+						: sala.getPreguntaActual().getId(),
+				sala.getPreguntaIniciadaEn(),
+				sala.getPausadaEn(),
+				limiteSegundos,
+				restanteMs(sala),
+				sala.getVersion());
+	}
+
+	/**
+	 * Pregunta habilitada para jugar. La vista es deliberadamente pública: no
+	 * incluye la alternativa correcta ni retroalimentación. Si el estudiante ya
+	 * envió su respuesta, se lo informa para que el cliente no lo deje
+	 * responder dos veces.
+	 */
+	@Override
+	@Transactional(readOnly = true)
+	public PreguntaSalaResponse preguntaActual(Long salaId, Long estudianteId) {
+		validarIdentificador(salaId);
+		Sala sala = salaRepository.findById(salaId)
+				.orElseThrow(() -> new ResourceNotFoundException(
+						"La sala no existe."));
+		if (sala.getEstado() != EstadoSala.EN_CURSO
+				&& sala.getEstado() != EstadoSala.PAUSADA) {
+			throw new ResourceNotFoundException(
+					"No hay una pregunta disponible en esta sala.");
+		}
+		if (sala.getPreguntaActual() == null) {
+			throw new ResourceNotFoundException(
+					"No hay una pregunta disponible en esta sala.");
+		}
+		Long preguntaId = sala.getPreguntaActual().getId();
+		List<AlternativaSalaResponse> alternativas = alternativaDocenteRepository
+				.findAllByPregunta_IdOrderByOrdenVisualAsc(preguntaId).stream()
+				.map(a -> new AlternativaSalaResponse(a.getId(), a.getTexto(),
+						a.getCodigo(), a.getLenguaje(), a.getOrdenVisual()))
+				.toList();
+
+		boolean respondida = false;
+		boolean omitida = false;
+		Long alternativaSeleccionadaId = null;
+		if (estudianteId != null) {
+			Optional<ParticipacionSala> participacion = participacionSalaRepository
+					.findAllBySala_IdAndEstudiante_Id(salaId, estudianteId)
+					.stream()
+					.findFirst();
+			if (participacion.isPresent()) {
+				Optional<RespuestaSala> respuesta = respuestaSalaRepository
+						.findByParticipacion_IdAndPregunta_Id(
+								participacion.get().getId(), preguntaId);
+				if (respuesta.isPresent()) {
+					respondida = true;
+					omitida = respuesta.get().isOmitida();
+					if (respuesta.get().getAlternativaElegida() != null) {
+						alternativaSeleccionadaId = respuesta.get()
+								.getAlternativaElegida().getId();
+					}
+				}
+			}
+		}
+
+		Numeracion numeracion = numerar(sala, preguntaId);
+		return new PreguntaSalaResponse(
+				sala.getId(),
+				sala.getEstado(),
+				preguntaId,
+				numeracion.numero(),
+				numeracion.total(),
+				sala.getPreguntaActual().getEnunciado(),
+				sala.getPreguntaActual().getTipo(),
+				sala.getPreguntaActual().getNivel(),
+				sala.getPreguntaActual().getTema() == null ? null
+						: sala.getPreguntaActual().getTema().getNombre(),
+				alternativas,
+				sala.getPreguntaIniciadaEn(),
+				sala.getPausadaEn(),
+				sala.segundosLimitePregunta(),
+				restanteMs(sala),
+				respondida,
+				alternativaSeleccionadaId,
+				omitida);
+	}
+
+	/**
+	 * Posición (1-based) de la pregunta actual dentro de las preguntas
+	 * disponibles del quiz, excluyendo las anuladas en esta sala. Si la
+	 * pregunta vigente fue anulada después de habilitarse, se usa la posición
+	 * del quiz completo para no devolver una numeración nula.
+	 */
+	private Numeracion numerar(Sala sala, Long preguntaId) {
+		List<QuizItem> items = quizItemRepository
+				.findAllByQuiz_IdOrderByOrdenAsc(sala.getQuizOrigen().getId());
+		Set<Long> anuladas = anulacionPreguntaRepository
+				.findAllBySala_Id(sala.getId()).stream()
+				.map(a -> a.getPregunta().getId())
+				.collect(Collectors.toSet());
+		List<QuizItem> disponibles = items.stream()
+				.filter(item -> !anuladas.contains(item.getPregunta().getId()))
+				.toList();
+		Integer numero = posicion(disponibles, preguntaId);
+		if (numero == null) {
+			numero = posicion(items, preguntaId);
+		}
+		return new Numeracion(numero, disponibles.size());
+	}
+
+	private Integer posicion(List<QuizItem> items, Long preguntaId) {
+		for (int i = 0; i < items.size(); i++) {
+			if (items.get(i).getPregunta().getId().equals(preguntaId)) {
+				return i + 1;
+			}
+		}
+		return null;
+	}
+
+	/** Tiempo restante en el servidor; durante la pausa el reloj no corre. */
+	private long restanteMs(Sala sala) {
+		if (sala.getPreguntaIniciadaEn() == null) {
+			return 0L;
+		}
+		Instant referencia = sala.getEstado() == EstadoSala.PAUSADA
+				&& sala.getPausadaEn() != null
+						? sala.getPausadaEn()
+						: Instant.now();
+		long transcurrido = Math.max(0L,
+				Duration.between(sala.getPreguntaIniciadaEn(), referencia)
+						.toMillis());
+		return Math.max(0L, sala.segundosLimitePregunta() * 1000L - transcurrido);
+	}
+
+	private record Numeracion(Integer numero, int total) {
 	}
 
 	private Sala buscarSalaDeDocente(Long docenteId, Long id) {
@@ -197,6 +438,16 @@ public class SalaServiceImp implements SalaService {
 		}
 	}
 
+	private SalaResponse guardarYPublicar(Sala sala) {
+		SalaResponse response = aResponse(salaRepository.save(sala));
+		// Cambiar de pregunta o de estado altera qué respuestas cuentan para el
+		// ranking (y si se revela el acierto): no se sirve una entrada vieja.
+		rankingCache.invalidar(sala.getId());
+		salaEventoService.publicarTrasCommit(sala.getId(),
+				SalaEventoService.EVENTO_SALA, response);
+		return response;
+	}
+
 	private SalaResponse aResponse(Sala sala) {
 		return new SalaResponse(
 				sala.getId(),
@@ -206,6 +457,12 @@ public class SalaServiceImp implements SalaService {
 				sala.getEstado(),
 				sala.getTiempoPorPregunta(),
 				sala.getAmpliacion(),
-				sala.getQuizVersionCongeladaEn());
+				sala.getQuizVersionCongeladaEn(),
+				sala.getPreguntaActual() == null ? null
+						: sala.getPreguntaActual().getId(),
+				sala.getPreguntaIniciadaEn(),
+				sala.getPausadaEn(),
+				sala.segundosLimitePregunta(),
+				sala.getVersion());
 	}
 }
