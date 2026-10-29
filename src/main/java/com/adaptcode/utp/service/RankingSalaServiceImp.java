@@ -4,7 +4,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Service;
@@ -13,11 +13,12 @@ import org.springframework.transaction.annotation.Transactional;
 import com.adaptcode.utp.dto.response.RankingSalaResponse;
 import com.adaptcode.utp.exception.ResourceNotFoundException;
 import com.adaptcode.utp.exception.SolicitudInvalidaException;
+import com.adaptcode.utp.model.EstadoSala;
 import com.adaptcode.utp.model.ParticipacionSala;
-import com.adaptcode.utp.model.RespuestaSala;
-import com.adaptcode.utp.repository.AnulacionPreguntaRepository;
+import com.adaptcode.utp.model.Sala;
 import com.adaptcode.utp.repository.ParticipacionSalaRepository;
 import com.adaptcode.utp.repository.RespuestaSalaRepository;
+import com.adaptcode.utp.repository.RespuestaSalaRepository.PuntajeProyeccion;
 import com.adaptcode.utp.repository.SalaRepository;
 
 import lombok.RequiredArgsConstructor;
@@ -29,7 +30,7 @@ public class RankingSalaServiceImp implements RankingSalaService {
 	private final SalaRepository salaRepository;
 	private final ParticipacionSalaRepository participacionSalaRepository;
 	private final RespuestaSalaRepository respuestaSalaRepository;
-	private final AnulacionPreguntaRepository anulacionPreguntaRepository;
+	private final RankingCache rankingCache;
 
 	@Override
 	@Transactional(readOnly = true)
@@ -37,57 +38,73 @@ public class RankingSalaServiceImp implements RankingSalaService {
 		if (salaId == null || salaId <= 0) {
 			throw new SolicitudInvalidaException("El identificador debe ser positivo.");
 		}
-		if (!salaRepository.existsById(salaId)) {
-			throw new ResourceNotFoundException("La sala no existe.");
-		}
+		Sala sala = salaRepository.findById(salaId)
+				.orElseThrow(() -> new ResourceNotFoundException(
+						"La sala no existe."));
+		// Mientras la ronda está abierta, sus aciertos no cuentan: de lo
+		// contrario el ranking revelaría qué alternativa era la correcta.
+		Long excluirPreguntaId = sala.getEstado() == EstadoSala.FINALIZADA
+				|| sala.getPreguntaActual() == null
+						? null
+						: sala.getPreguntaActual().getId();
+		return rankingCache.obtener(salaId,
+				() -> calcularRanking(salaId, excluirPreguntaId));
+	}
+
+	private List<RankingSalaResponse> calcularRanking(Long salaId,
+			Long excluirPreguntaId) {
+		// Defensa en profundidad: el repositorio ya excluye expulsados, pero una
+		// expulsión concurrente no debe aparecer en el ranking.
 		List<ParticipacionSala> participaciones = participacionSalaRepository
-				.findAllBySala_Id(salaId);
-		Set<Long> anuladas = anulacionPreguntaRepository.findAllBySala_Id(salaId)
-				.stream()
-				.map(a -> a.getPregunta().getId())
-				.collect(Collectors.toSet());
-		Map<Long, List<RespuestaSala>> porParticipacion =
-				respuestaSalaRepository.findAllByParticipacion_Sala_Id(salaId)
-						.stream()
-						.collect(Collectors.groupingBy(
-								r -> r.getParticipacion().getId()));
-		return ordenarRanking(calcularPuntajes(
-				participaciones, porParticipacion, anuladas));
+				.findAllBySala_Id(salaId).stream()
+				.filter(participacion -> !participacion.isExpulsado())
+				.toList();
+		Map<Long, PuntajeProyeccion> puntajes = respuestaSalaRepository
+				.calcularPuntajes(salaId, excluirPreguntaId).stream()
+				.collect(Collectors.toMap(PuntajeProyeccion::getParticipacionId,
+						Function.identity(), (a, b) -> a));
+		return ordenarRanking(calcularPuntajes(participaciones, puntajes));
 	}
 
 	private List<Puntaje> calcularPuntajes(
 			List<ParticipacionSala> participaciones,
-			Map<Long, List<RespuestaSala>> porParticipacion,
-			Set<Long> anuladas) {
-		List<Puntaje> puntajes = new ArrayList<>();
-		for (ParticipacionSala p : participaciones) {
-			List<RespuestaSala> respuestas = porParticipacion.getOrDefault(
-					p.getId(), List.of()).stream()
-					.filter(r -> !anuladas.contains(r.getPregunta().getId()))
-					.toList();
-			int puntos = (int) respuestas.stream()
-					.filter(r -> r.isAcierto() && !r.isOmitida())
-					.count();
-			long tiempo = respuestas.stream()
-					.mapToLong(r -> r.getTiempoMs() != null ? r.getTiempoMs() : 0L)
-					.sum();
-			puntajes.add(new Puntaje(p, puntos, tiempo));
+			Map<Long, PuntajeProyeccion> puntajes) {
+		List<Puntaje> resultado = new ArrayList<>();
+		for (ParticipacionSala participacion : participaciones) {
+			PuntajeProyeccion proyeccion = puntajes.get(participacion.getId());
+			int puntos = proyeccion == null || proyeccion.getPuntos() == null
+					? 0 : proyeccion.getPuntos().intValue();
+			long tiempo = proyeccion == null || proyeccion.getTiempoMs() == null
+					? 0L : proyeccion.getTiempoMs();
+			int respondidas = proyeccion == null
+					|| proyeccion.getRespondidas() == null
+							? 0 : proyeccion.getRespondidas().intValue();
+			resultado.add(new Puntaje(participacion, puntos, respondidas, tiempo));
 		}
-		puntajes.sort(Comparator.comparingInt(Puntaje::puntos).reversed()
+		// Puntos primero; a igualdad, quien respondió (aunque fallara) supera a
+		// quien dejó la pregunta en blanco; el tiempo solo desempata entre
+		// respuestas equivalentes.
+		resultado.sort(Comparator.comparingInt(Puntaje::puntos).reversed()
+				.thenComparing(Comparator.comparingInt(Puntaje::respondidas)
+						.reversed())
 				.thenComparingLong(Puntaje::tiempo));
-		return puntajes;
+		return resultado;
 	}
 
 	private List<RankingSalaResponse> ordenarRanking(List<Puntaje> puntajes) {
 		List<RankingSalaResponse> ranking = new ArrayList<>();
 		int posicion = 0;
 		int puntosPrevios = -1;
+		int respondidasPrevias = -1;
 		long tiempoPrevio = -1L;
 		for (int i = 0; i < puntajes.size(); i++) {
 			Puntaje actual = puntajes.get(i);
-			if (actual.puntos() != puntosPrevios || actual.tiempo() != tiempoPrevio) {
+			if (actual.puntos() != puntosPrevios
+					|| actual.respondidas() != respondidasPrevias
+					|| actual.tiempo() != tiempoPrevio) {
 				posicion = i + 1;
 				puntosPrevios = actual.puntos();
+				respondidasPrevias = actual.respondidas();
 				tiempoPrevio = actual.tiempo();
 			}
 			String apellidos = actual.participacion().getEstudiante().getApellidos();
@@ -105,6 +122,7 @@ public class RankingSalaServiceImp implements RankingSalaService {
 		return ranking;
 	}
 
-	private record Puntaje(ParticipacionSala participacion, int puntos, long tiempo) {
+	private record Puntaje(ParticipacionSala participacion, int puntos,
+			int respondidas, long tiempo) {
 	}
 }

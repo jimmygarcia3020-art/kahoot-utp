@@ -60,7 +60,7 @@ const routes: Record<string, string> = {
           @if (mode() !== 'recuperar' && mode() !== 'verificar') {
             <label>{{ mode() === 'restablecer' ? 'Nueva contraseña' : 'Contraseña' }}
               <div class="password-field">
-                <input [type]="showPassword() ? 'text' : 'password'" [name]="mode() === 'restablecer' ? 'nuevaContrasena' : 'contrasena'" [attr.autocomplete]="mode() === 'login' ? 'current-password' : 'new-password'" [attr.minlength]="mode() === 'login' ? null : 8" [attr.maxlength]="mode() === 'login' ? null : 72" required>
+                <input [type]="showPassword() ? 'text' : 'password'" [name]="mode() === 'restablecer' ? 'nuevaContrasena' : 'contrasena'" [attr.autocomplete]="mode() === 'login' ? 'current-password' : 'new-password'" [attr.minlength]="mode() === 'login' ? null : 12" [attr.maxlength]="mode() === 'login' ? null : 72" required>
                 <button class="text-button" type="button" id="toggle-password" [attr.aria-label]="'Mostrar contraseña'" (click)="showPassword.set(!showPassword())">{{ showPassword() ? 'Ocultar' : 'Mostrar' }}</button>
               </div>
             </label>

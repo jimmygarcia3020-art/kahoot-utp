@@ -19,9 +19,12 @@ import com.adaptcode.utp.dto.request.QuizRequest;
 import com.adaptcode.utp.dto.response.QuizResponse;
 import com.adaptcode.utp.model.EstadoQuiz;
 import com.adaptcode.utp.service.QuizService;
+import com.adaptcode.utp.util.Paginacion;
 
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.PositiveOrZero;
 import lombok.RequiredArgsConstructor;
 
 @RestController
@@ -41,10 +44,13 @@ public class QuizController {
 	}
 
 	@GetMapping
-	public ResponseEntity<List<QuizResponse>> listar(
+	public ResponseEntity<?> listar(
 			@Positive(message = "El identificador debe ser positivo.") @PathVariable Long docenteId,
-			@RequestParam(required = false) EstadoQuiz estado) {
-		return ResponseEntity.ok(quizService.listarPorDocente(docenteId, estado));
+			@RequestParam(required = false) EstadoQuiz estado,
+			@RequestParam(required = false) @PositiveOrZero(message = "La página no puede ser negativa.") Integer page,
+			@RequestParam(required = false) @Positive(message = "El tamaño debe ser positivo.") @Max(value = 100, message = "El tamaño máximo es 100.") Integer size) {
+		return ResponseEntity.ok(Paginacion.responder(
+				quizService.listarPorDocente(docenteId, estado), page, size));
 	}
 
 	@GetMapping("/{id}")

@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.RestController;
 import com.adaptcode.utp.dto.request.LoginRequest;
 import com.adaptcode.utp.dto.request.RecuperarContrasenaRequest;
 import com.adaptcode.utp.dto.request.ReenviarCodigoRequest;
+import com.adaptcode.utp.dto.request.RefreshTokenRequest;
 import com.adaptcode.utp.dto.request.RegistroRequest;
 import com.adaptcode.utp.dto.request.RestablecerContrasenaRequest;
 import com.adaptcode.utp.dto.request.VerificarCodigoRequest;
@@ -41,6 +42,23 @@ public class AuthController {
 	public ResponseEntity<AuthResponse> login(
 			@Valid @RequestBody LoginRequest request) {
 		return ResponseEntity.ok(authService.login(request));
+	}
+
+	/**
+	 * Renueva el access token sin reenviar credenciales. El refresh token es de
+	 * un solo uso: esta llamada lo rota y devuelve uno nuevo.
+	 */
+	@PostMapping("/refresh")
+	public ResponseEntity<AuthResponse> refrescar(
+			@Valid @RequestBody RefreshTokenRequest request) {
+		return ResponseEntity.ok(authService.refrescar(request));
+	}
+
+	/** Revoca el refresh token. Responde 200 aunque ya estuviera revocado. */
+	@PostMapping("/logout")
+	public ResponseEntity<MensajeResponse> cerrarSesion(
+			@Valid @RequestBody RefreshTokenRequest request) {
+		return ResponseEntity.ok(authService.cerrarSesion(request));
 	}
 
 	@PostMapping("/verificar-cuenta")

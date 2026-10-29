@@ -31,6 +31,7 @@ export function createDemo(storage: Storage = localStorage): DemoBackend {
   };
 
   function recordAttempt(userId: number, body: any): any {
+    if (body.acierto === undefined) { body = { ...body, acierto: true, usoAyuda: true }; }
     const attempt = { ...body, id: state.nextId++, usuarioId: userId, nroIntento: state.attempts.filter((a: any) => a.usuarioId === userId && a.microRetoId === body.microRetoId).length + 1 };
     state.attempts.push(attempt);
     if (body.acierto) {

@@ -27,6 +27,7 @@ export class SessionService {
     if (this.demoMode) this.api.useDemo(createDemo());
     this.api.configure({
       token: () => this.session()?.token ?? null,
+      refresh: () => this.refreshSession(),
       onUnauthorized: () => {
         this.clear();
         this.toast.show('Tu sesión terminó. Inicia sesión para continuar.');
@@ -63,7 +64,27 @@ export class SessionService {
     this.router.navigateByUrl(needsProfile(this.session()) ? '/completar-perfil' : '/');
   }
 
+  // Renueva el access token con el refresh token. Devuelve el nuevo token o null si ya no es válido.
+  async refreshSession(): Promise<string | null> {
+    const current = this.session();
+    if (!current?.refreshToken) return null;
+    try {
+      const result = await this.api.request<AuthSession>('/auth/refresh', { method: 'POST', body: { refreshToken: current.refreshToken }, anonymous: true });
+      const session = { ...current, ...result, expiresAt: Date.now() + result.expiraEnMs };
+      this.session.set(session);
+      sessionStorage.setItem(this.sessionKey, JSON.stringify(session));
+      return session.token;
+    } catch {
+      return null;
+    }
+  }
+
   signOut(): void {
+    const refreshToken = this.session()?.refreshToken;
+    if (refreshToken && !this.demoMode) {
+      // Revoca el refresh token en el servidor; si falla, la sesión local se cierra igual.
+      this.api.request('/auth/logout', { method: 'POST', body: { refreshToken }, anonymous: true }).catch(() => {});
+    }
     this.clear();
     this.router.navigateByUrl('/');
   }

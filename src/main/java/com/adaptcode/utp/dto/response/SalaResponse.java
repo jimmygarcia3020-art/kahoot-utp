@@ -13,5 +13,10 @@ public record SalaResponse(
 		EstadoSala estado,
 		Integer tiempoPorPregunta,
 		AmpliacionSala ampliacion,
-		Instant quizVersionCongeladaEn) {
+		Instant quizVersionCongeladaEn,
+		Long preguntaActualId,
+		Instant preguntaIniciadaEn,
+		Instant pausadaEn,
+		int segundosLimitePregunta,
+		Long version) {
 }

@@ -18,7 +18,6 @@ import jakarta.persistence.Table;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
-import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
@@ -52,9 +51,10 @@ public class CodigoVerificacion {
 	@Column(name = "correo", nullable = false, length = 254)
 	private String correo;
 
+	// HMAC-SHA256 en hexadecimal (64 caracteres). Las filas antiguas guardaban
+	// seis dígitos en claro; se reconocen como legacy y se migran al verificar.
 	@NotBlank(message = "El código es obligatorio")
-	@Pattern(regexp = "\\d{6}", message = "El código debe tener seis dígitos numéricos")
-	@Column(name = "codigo", nullable = false, length = 6)
+	@Column(name = "codigo", nullable = false, length = 64)
 	private String codigo;
 
 	@Enumerated(EnumType.STRING)
@@ -68,8 +68,16 @@ public class CodigoVerificacion {
 	@Column(name = "usado", nullable = false)
 	private boolean usado;
 
+	// Nulo para filas creadas antes de existir la columna; se interpreta como 0.
+	@Column(name = "intentos")
+	private Integer intentos;
+
 	@Column(name = "creado_en", nullable = false, updatable = false)
 	private Instant creadoEn;
+
+	public int intentosActuales() {
+		return intentos == null ? 0 : intentos;
+	}
 
 	public CodigoVerificacion(Usuario usuario, String codigo,
 			TipoCodigoVerificacion tipo, Instant expiraEn) {

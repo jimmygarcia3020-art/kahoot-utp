@@ -13,6 +13,7 @@ import jakarta.persistence.ManyToOne;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
+import jakarta.persistence.Version;
 import jakarta.validation.constraints.PositiveOrZero;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
@@ -49,12 +50,21 @@ public class RespuestaSala {
 	@Column(name = "acierto", nullable = false)
 	private boolean acierto;
 
+	/** Alternativa enviada por el estudiante; null si omitió la pregunta. */
+	@ManyToOne(fetch = FetchType.LAZY)
+	@JoinColumn(name = "alternativa_elegida_id")
+	private AlternativaDocente alternativaElegida;
+
 	@Column(name = "omitida", nullable = false)
 	private boolean omitida;
 
 	@PositiveOrZero(message = "El tiempo no puede ser negativo")
 	@Column(name = "tiempo_ms")
 	private Long tiempoMs;
+
+	@Version
+	@Column(name = "version")
+	private Long version;
 
 	@Column(name = "creado_en", nullable = false, updatable = false)
 	private Instant creadoEn;
